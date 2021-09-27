@@ -1,0 +1,274 @@
+---
+title: "Yanny/Laurel analysis"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r libraries,echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+theme_set(theme_bw())
+
+colscale = scale_color_manual(values=c("#7CB637","#4381C1", "#666666")) 
+colscale_fill = scale_fill_manual(values=c("#7CB637","#4381C1", "#666666"))
+
+```
+
+## Subjects
+
+```{r load_data,echo=FALSE}
+data = read.csv("../data/ling-145-yannny_laurel-data.csv") %>%
+  mutate(age = as.numeric(as.character(age))) %>%
+  filter(!is.na(age))
+n_participants = length(unique(data$participant))
+mean_age = mean(data$age)
+sd_age = sd(data$age)
+
+```
+
+ `r n_participants` participants (mean age: `r round(mean_age,2)` years, stdev: `r round(sd_age,2)`) completed the experiment.
+
+
+## Overall responses
+
+Let's first look at how often participants provided the two responses.
+
+```{r overall_plot,echo=FALSE}
+
+ggplot(data, aes(x=response, fill=response)) +
+  geom_bar() + 
+  colscale_fill + 
+  theme(legend.position = "none")
+
+perc_laurel = nrow(data %>% filter(response == "Laurel")) / nrow(data) * 100
+perc_yanny = 100 - perc_laurel
+
+```
+
+Overall, there is a bias towards Laurel: Participants responded with Laurel in `r round(perc_laurel,2)`% of the trials.
+
+
+## Responses per item
+
+Next, let's look at whether our manipulation worked. Did participants respond more often with Yanny to the clips whose high frequencies where amplified than to the clips whose low frequencies were amplified?
+
+```{r per_item_responses,echo=FALSE}
+
+ggplot(data, aes(x=stimulus, fill=response)) +
+  geom_bar() + 
+  colscale_fill + 
+  xlab("most \"Laurel\" - most \"Yanny\"") +
+  theme(legend.position = "bottom")
+
+```
+
+This plot suggests that our manipulation worked. The more we amplified the high frequencies, the more participants responded that they heard "Yanny".
+
+
+## Responses per condition
+
+We had three conditions in total: 1/4 of the participants heard the "most Laurel" stimulus first and then heard the entire continuum to the "most Yanny"; 1/4 of participants heard the "most Yanny" clip first and then heard the continuum to the "most Laurel"; and half of the participants heard the stimuli in random order.
+
+Did this manipulation also have an effect? 
+
+```{r per_condition_responses,echo=FALSE}
+ggplot(data, aes(x=response, fill=response)) + 
+  geom_bar() + 
+  colscale_fill + 
+  facet_wrap(~condition, ncol = 3, scales = "free") +
+  theme(legend.position = "bottom")
+
+```
+
+These plots suggest that the proportion of trials to which participants responded with "Yanny" depends on the condition. In the "Laurel first" condition,
+participants predominantly responded with Laurel, in the "random" condition, they said that they heard "Yanny" a bit more often and in the "Yanny first" condition, they said that they heard "Yanny" almost as often as "Laurel". This suggests that there is a priming effect and participants tend to hear the word more often that they heard in the first trial.
+
+
+## Responses per item and condition
+
+```{r per_item_responses_per_condition,echo=FALSE}
+
+ggplot(data, aes(x=stimulus, fill=response)) + 
+  geom_bar() + 
+  colscale_fill + 
+  xlab("most \"Laurel\" - most \"Yanny\"")  + 
+  facet_wrap(~condition, ncol = 3, scales = "free") +
+  theme(legend.position = "bottom")
+
+```
+
+These plots suggest that the priming effect holds for all items. If the first clip that participant heard was the "most Laurel" one, they were more likely to perceive all other clips as "Laurel" than when we presented the clips in random order or when they first heard the "most Yanny" clip. 
+
+## Effects of previous response
+
+
+```{r priming_data, echo=FALSE, cache=TRUE}
+
+priming_data = data
+
+priming_data$prev_stimulus = 0
+priming_data$prev_resp = NA
+priming_data$prev_stim_diff = 0
+
+for (i in 1:nrow(priming_data)) {
+  if (priming_data[i,]$trial > 0) {
+    priming_data[i,]$prev_stimulus = priming_data[i-1,]$stimulus
+    priming_data[i,]$prev_resp = priming_data[i-1,]$response
+    priming_data[i,]$prev_stim_diff = priming_data[i-1,]$stimulus - priming_data[i,]$stimulus
+
+  }
+}
+priming_data = priming_data %>% filter(!is.na(prev_resp))
+priming_data$switched_response = as.integer(priming_data$response) != as.integer(priming_data$prev_resp)
+
+```
+Next, we can look at the relationship between the previous response and the current response. These plots show for each of the three conditions, how often participants responded with "Laurel" and "Yanny" given that they either responded with "Laurel" or "Yanny" in the previous trial.
+
+
+```{r previous_response, echo=FALSE}
+
+priming_data$prev_resp = factor(priming_data$prev_resp, labels=c("Laurel", "Yanny"))
+ggplot(priming_data, aes(x=response, fill=response)) + 
+  geom_bar() + 
+  colscale_fill + 
+  facet_wrap(~ prev_resp + condition,  ncol = 3, scales = "free")
+
+```
+
+These plots show that in the two conditions in which participants heard the continua in order (the "Yanny first" and the "Laurel first") condition, participants rarely changed their response across trials. In the random, condition, on the other hand, participants were more likely to change their response across trials. 
+
+In the "Yanny first" and "Laurel first" condition the difference in terms of "Laurel/Yannyness" was always the same across trials, but in the random condition, participants sometimes heard very different stimuli across trials. How different the two stimuli are, potentially has an effect on whether participants tend to change their responses. The following graph, plots the percentage of trials in which participants responded differently than in the previous trial as a function of difference in the stimuli.
+
+
+```{r switch_probability, echo=FALSE}
+switch_data = priming_data
+switch_data$prev_stim_diff = factor(switch_data$prev_stim_diff)
+
+switch_data = switch_data %>% 
+  filter(condition == "random") %>%
+  group_by(prev_stim_diff)  %>% 
+  dplyr::summarise(switch_prob = mean(as.integer(switched_response)))
+
+  ggplot(switch_data, aes(x=prev_stim_diff, y=switch_prob, group="none")) + 
+    geom_point() + 
+    geom_line() + 
+    colscale + 
+    xlab("Difference between stimuli") +
+    ylab("Probability to switch repsonse")
+```
+
+This plot suggests that participants were more likely to change their response across trials if the stimuli differed more.
+
+
+## Gender
+
+Previous research has shown that men tend to be worse at perceiving high-frequency sounds (especially once they get older), so we might also expect that male participants respond more often with "Laurel" than female participants.
+
+```{r gender,echo=FALSE}
+
+data$gender = factor(data$gender, labels = c("female", "male", "other"))
+
+ggplot(data, aes(x=response, fill=response)) + 
+  geom_bar() + 
+  colscale_fill + 
+  facet_wrap(~gender, scales = "free", ncol = 3) +
+  theme(legend.position = "bottom")
+```
+
+These plots suggest that this is indeed the case and that male participants are more likely to perceive the clips as saying "Laurel" than female participants.
+
+## Age
+
+The ability to perceive high-frequency sounds gets worse with age. We therefore might also see a negative correlation between age and "Yanny" response rates.
+
+```{r age,echo=FALSE}
+
+age_data = data 
+
+age_data$age = factor(age_data$age)
+
+age_data = age_data %>% 
+  group_by(age)  %>% 
+  dplyr::summarise(yanny_prob = mean(as.integer(response)-1))
+
+
+```
+
+Based on this plot, there does not seem to be such a negative correlation in our data. 
+
+However, also note that almost all participants are between 17-24 years old, as shown in the following plot, so it seems like this data is not well suited to test this hypothesis.
+
+```{r age_distr, echo=FALSE}
+
+ggplot(age_data, aes(x=age, y=yanny_prob, group="none")) + 
+  geom_point() + 
+  geom_line() + 
+  xlab("Age") +
+  ylab("Percentage \"Yanny\"")
+
+ggplot(data %>% 
+         group_by(participant) %>% 
+         filter(!is.na(age)) %>% 
+         dplyr::summarise(age = min(age)), 
+       aes(x=age)) + 
+  geom_bar() + 
+  xlab("Age")
+```
+
+
+## Noise exposure
+
+Participants who are often exposed to loud noises (e.g., loud music, traffic, ...) are potentially also worse at perceiving high frequencies and therefore less likely to hear "Yanny". The following plot compares the "Yanny" response rate for participants who indicated
+that they are frequently exposed to noise and participants who indicated that they are not.
+
+```{r noise_exposure, echo=FALSE}
+
+ggplot(data %>% 
+        group_by(noise_exposure) %>% 
+         dplyr::summarize(
+           laurel_rate=mean((as.integer(response) - 2 ) * -1), 
+           yanny_rate=mean((as.integer(response) - 1 ))), 
+       aes(x=noise_exposure, y=yanny_rate)) + 
+  geom_bar(stat = "identity") + 
+  xlab("Frequently exposed to loud sounds") +
+  ylab("Percentage \"Yanny\"")
+```
+
+These plots suggest that there might indeed be a small effect of noise exposure and that participants who are frequently exposed to noise are less likely to respond with "Yanny".
+
+## Statistical model
+
+Lastly, we can test whether the observations that we found above are statistically significant. We can use a logistic regression model that tries to predict based on the above factors whether a participant will respond with "Yanny" or "Laurel" in a given trial. 
+
+
+```{r model, echo=FALSE}
+
+contrasts(priming_data$condition) <- contr.treatment(n=3, base=2)
+priming_data$prev_stim_diff = abs(priming_data$prev_stim_diff)
+
+model = glm(formula = response ~ 
+                        stimulus + 
+                        prev_resp * prev_stim_diff +   
+                        condition + 
+                        gender +
+                        age +
+                        noise_exposure,
+            data = priming_data,
+            family = "binomial")
+
+summary(model)
+```
+
+In this model, positive correlations indicate that a factor increases "Yanny" responses and negative correlations indicate that a factor increases "Laurel" responses. This model suggests the following:
+
+* Overall participants are more likely to respond with "Laurel" than with "Yanny" (negative intercept)
+* There is a positive correlation between the "Yannyness" of a stimulus and the proportion of "Yanny responses" (`stimulus`)
+* There is a correlation between the previous response being Yanny and the current response being Yanny (`prev_respYanny`)
+* There is an interaction between the previous response and the difference in stimuli across trials: The more the stimuli differ, the more likely it is the responses also differ (`prev_respYanny:prev_stim_diff` and `prev_stim_diff`)
+* Participants in the "Laurel first" condition are less likely to respond with "Yanny" than in the "random" condition (`condition1`)
+* Participants in the "Yanny first" condition are not statistically more likely to respond with "Yanny" than in the "random" condition (`condition3` -- different from last year's run!)
+* No statistical difference across genders (`genderm`)
+* Small negative correlation between age and percentage of Yanny responses (`age`) (Most likely an artifact of the data -- the exact opposite of last year's result!)
+
