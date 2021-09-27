@@ -176,12 +176,7 @@ function init() {
 
   //make sure turkers have accepted HIT (or you're not in mturk)
   $("#start_button").click(function() {
-    if (turk.previewMode) {
-      $("#mustaccept").show();
-    } else {
-      $("#start_button").click(function() {$("#mustaccept").show();});
-      exp.go();
-    }
+    exp.go();
   });
 
   $(".response-buttons, .test-response-buttons").click(function() {
